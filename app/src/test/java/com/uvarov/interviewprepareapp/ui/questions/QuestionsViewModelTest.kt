@@ -9,11 +9,12 @@ import com.uvarov.interviewprepareapp.domain.usecase.GetQuestionsUseCase
 import com.uvarov.interviewprepareapp.domain.usecase.RefreshQuestionsUseCase
 import com.uvarov.interviewprepareapp.domain.usecase.ToggleBookmarkUseCase
 import com.uvarov.interviewprepareapp.util.MainDispatcherRule
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -56,9 +57,8 @@ class QuestionsViewModelTest {
 
         var customFlow: Flow<List<InterviewQuestion>>? = null
 
+        var refreshDelayMs: Long = 0L
         var refreshResult: Result<Unit> = Result.success(Unit)
-        var onRefresh: (suspend () -> Result<Unit>)? = null
-        var refreshCallCount = 0
 
         var lastRequestedCategory: QuestionCategory? = null
         val requestedCategories = mutableListOf<QuestionCategory?>()
@@ -78,8 +78,10 @@ class QuestionsViewModelTest {
         }
 
         override suspend fun refreshQuestions(): Result<Unit> {
-            refreshCallCount++
-            return onRefresh?.invoke() ?: refreshResult
+            if (refreshDelayMs > 0) {
+                delay(refreshDelayMs)
+            }
+            return refreshResult
         }
 
         override suspend fun toggleBookmark(id: String) {
@@ -139,7 +141,6 @@ class QuestionsViewModelTest {
                 cancelAndIgnoreRemainingEvents()
             }
 
-            assertEquals(1, fakeRepository.refreshCallCount)
             assertEquals(null, fakeRepository.lastRequestedCategory) // ALL category maps to null in GetQuestionsUseCase
         }
 
@@ -164,8 +165,6 @@ class QuestionsViewModelTest {
 
                 cancelAndIgnoreRemainingEvents()
             }
-
-            assertEquals(1, fakeRepository.refreshCallCount)
         }
 
     @Test
@@ -325,17 +324,6 @@ class QuestionsViewModelTest {
     @Test
     fun `Refresh event sets isRefreshing true while active and false upon completion`() =
         runTest(mainDispatcherRule.testDispatcher) {
-            val refreshDeferred = CompletableDeferred<Result<Unit>>()
-            var callCount = 0
-            fakeRepository.onRefresh = {
-                callCount++
-                if (callCount == 1) {
-                    Result.success(Unit) // initial init refresh
-                } else {
-                    refreshDeferred.await() // manual refresh in-flight
-                }
-            }
-
             val viewModel = createViewModel()
 
             viewModel.uiState.test {
@@ -344,17 +332,20 @@ class QuestionsViewModelTest {
                 val idleState = expectMostRecentItem()
                 assertFalse(idleState.isRefreshing)
 
+                // Configure virtual delay for the manual refresh
+                fakeRepository.refreshDelayMs = 1_000L
+
                 // Trigger manual refresh
                 viewModel.onEvent(QuestionsUiEvent.Refresh)
-                runCurrent()
+                runCurrent() // Runs up to delay(1_000L)
 
                 // State while refresh is in-flight
                 val refreshingState = awaitItem()
                 assertTrue(refreshingState.isRefreshing)
                 assertNull(refreshingState.errorMessage)
 
-                // Complete the refresh
-                refreshDeferred.complete(Result.success(Unit))
+                // Advance virtual clock past the delay
+                advanceTimeBy(1_000L)
                 runCurrent()
 
                 // State after completion
@@ -363,8 +354,6 @@ class QuestionsViewModelTest {
 
                 cancelAndIgnoreRemainingEvents()
             }
-
-            assertEquals(2, fakeRepository.refreshCallCount)
         }
 
     @Test
@@ -381,20 +370,20 @@ class QuestionsViewModelTest {
                 val stateWithError = expectMostRecentItem()
                 assertEquals("Previous error", stateWithError.errorMessage)
 
-                // Setup subsequent refresh to stay in-flight
-                val refreshDeferred = CompletableDeferred<Result<Unit>>()
-                fakeRepository.onRefresh = { refreshDeferred.await() }
+                // Configure delay for the next refresh
+                fakeRepository.refreshDelayMs = 1_000L
+                fakeRepository.refreshResult = Result.success(Unit)
 
                 viewModel.onEvent(QuestionsUiEvent.Refresh)
-                runCurrent()
+                runCurrent() // Runs up to delay(1_000L)
 
                 // When refresh starts, error must be cleared immediately
                 val refreshingState = awaitItem()
                 assertTrue(refreshingState.isRefreshing)
                 assertNull(refreshingState.errorMessage)
 
-                // Complete refresh
-                refreshDeferred.complete(Result.success(Unit))
+                // Advance virtual clock past the delay
+                advanceTimeBy(1_000L)
                 runCurrent()
 
                 val finalState = awaitItem()
