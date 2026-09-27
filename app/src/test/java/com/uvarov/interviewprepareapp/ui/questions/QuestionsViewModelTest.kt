@@ -1,5 +1,6 @@
 package com.uvarov.interviewprepareapp.ui.questions
 
+import app.cash.turbine.test
 import com.uvarov.interviewprepareapp.domain.model.Difficulty
 import com.uvarov.interviewprepareapp.domain.model.InterviewQuestion
 import com.uvarov.interviewprepareapp.domain.model.QuestionCategory
@@ -7,134 +8,536 @@ import com.uvarov.interviewprepareapp.domain.repository.QuestionRepository
 import com.uvarov.interviewprepareapp.domain.usecase.GetQuestionsUseCase
 import com.uvarov.interviewprepareapp.domain.usecase.RefreshQuestionsUseCase
 import com.uvarov.interviewprepareapp.domain.usecase.ToggleBookmarkUseCase
-import kotlinx.coroutines.Dispatchers
+import com.uvarov.interviewprepareapp.util.MainDispatcherRule
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class QuestionsViewModelTest {
 
-    private val testDispatcher = StandardTestDispatcher()
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
-    private val fakeRepository = object : QuestionRepository {
-        val sampleQuestions = listOf(
-            InterviewQuestion("1", "Title 1", QuestionCategory.ANDROID, Difficulty.EASY, "Summary 1")
-        )
-        var shouldFailRefresh = false
-        var bookmarkedId: String? = null
+    private val sampleQuestion1 = InterviewQuestion(
+        id = "1",
+        title = "Activity Lifecycle",
+        category = QuestionCategory.ANDROID,
+        difficulty = Difficulty.EASY,
+        answerSummary = "Lifecycle summary"
+    )
+
+    private val sampleQuestion2 = InterviewQuestion(
+        id = "2",
+        title = "Coroutines vs Threads",
+        category = QuestionCategory.KOTLIN,
+        difficulty = Difficulty.MEDIUM,
+        answerSummary = "Coroutines summary"
+    )
+
+    private val sampleQuestions = listOf(sampleQuestion1, sampleQuestion2)
+
+    private class FakeQuestionRepository : QuestionRepository {
+        var sampleQuestions = listOf<InterviewQuestion>()
+        var androidQuestions = listOf<InterviewQuestion>()
+        var kotlinQuestions = listOf<InterviewQuestion>()
+
+        var customFlow: Flow<List<InterviewQuestion>>? = null
+
+        var refreshResult: Result<Unit> = Result.success(Unit)
+        var onRefresh: (suspend () -> Result<Unit>)? = null
+        var refreshCallCount = 0
+
+        var lastRequestedCategory: QuestionCategory? = null
+        val requestedCategories = mutableListOf<QuestionCategory?>()
+        val bookmarkedIds = mutableListOf<String>()
 
         override fun getQuestions(category: QuestionCategory?): Flow<List<InterviewQuestion>> {
-            return flowOf(sampleQuestions)
-        }
+            lastRequestedCategory = category
+            requestedCategories.add(category)
+            customFlow?.let { return it }
 
-        override suspend fun refreshQuestions(): Result<Unit> {
-            return if (shouldFailRefresh) {
-                Result.failure(RuntimeException("Network error"))
-            } else {
-                Result.success(Unit)
+            return when (category) {
+                QuestionCategory.ANDROID -> flowOf(androidQuestions)
+                QuestionCategory.KOTLIN -> flowOf(kotlinQuestions)
+                null -> flowOf(sampleQuestions)
+                else -> flowOf(sampleQuestions)
             }
         }
 
+        override suspend fun refreshQuestions(): Result<Unit> {
+            refreshCallCount++
+            return onRefresh?.invoke() ?: refreshResult
+        }
+
         override suspend fun toggleBookmark(id: String) {
-            bookmarkedId = id
+            bookmarkedIds.add(id)
         }
     }
 
-    private lateinit var viewModel: QuestionsViewModel
+    private lateinit var fakeRepository: FakeQuestionRepository
 
-    @Before
-    fun setUp() {
-        Dispatchers.setMain(testDispatcher)
-        fakeRepository.shouldFailRefresh = false
-        fakeRepository.bookmarkedId = null
-
+    private fun createViewModel(): QuestionsViewModel {
         val getQuestionsUseCase = GetQuestionsUseCase(fakeRepository)
         val toggleBookmarkUseCase = ToggleBookmarkUseCase(fakeRepository)
         val refreshQuestionsUseCase = RefreshQuestionsUseCase(fakeRepository)
 
-        viewModel = QuestionsViewModel(
+        return QuestionsViewModel(
             getQuestionsUseCase = getQuestionsUseCase,
             toggleBookmarkUseCase = toggleBookmarkUseCase,
-            refreshQuestionsUseCase = refreshQuestionsUseCase,
+            refreshQuestionsUseCase = refreshQuestionsUseCase
         )
     }
 
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
+    @Before
+    fun setUp() {
+        fakeRepository = FakeQuestionRepository().apply {
+            sampleQuestions = this@QuestionsViewModelTest.sampleQuestions
+            androidQuestions = listOf(sampleQuestion1)
+            kotlinQuestions = listOf(sampleQuestion2)
+        }
     }
+
+    // ==========================================
+    // Group 1: Initialization & Loading State
+    // ==========================================
 
     @Test
-    fun `initial state loads questions successfully`() = runTest {
-        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            viewModel.uiState.collect()
-        }
-        testDispatcher.scheduler.advanceUntilIdle()
+    fun `initial state emits loading before upstream produces and then loads questions for ALL category`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val viewModel = createViewModel()
 
-        val state = viewModel.uiState.value
-        assertFalse(state.isLoading)
-        assertEquals(1, state.questions.size)
-        assertEquals("Title 1", state.questions.first().title)
-    }
+            viewModel.uiState.test {
+                // First emission from stateIn initialValue
+                val initial = awaitItem()
+                assertTrue(initial.isLoading)
+                assertTrue(initial.questions.isEmpty())
+                assertEquals(QuestionCategory.ALL, initial.selectedCategory)
+
+                // Advance virtual time to complete upstream combine and init refresh
+                advanceUntilIdle()
+
+                val loaded = expectMostRecentItem()
+                assertFalse(loaded.isLoading)
+                assertFalse(loaded.isRefreshing)
+                assertEquals(sampleQuestions, loaded.questions)
+                assertEquals(QuestionCategory.ALL, loaded.selectedCategory)
+                assertNull(loaded.errorMessage)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+
+            assertEquals(1, fakeRepository.refreshCallCount)
+            assertEquals(null, fakeRepository.lastRequestedCategory) // ALL category maps to null in GetQuestionsUseCase
+        }
 
     @Test
-    fun `selecting category updates state`() = runTest {
-        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            viewModel.uiState.collect()
+    fun `initial refresh failure displays localized error message in state`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            fakeRepository.refreshResult = Result.failure(RuntimeException("Initial network error"))
+
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                val initial = awaitItem()
+                assertTrue(initial.isLoading)
+
+                advanceUntilIdle()
+
+                val stateWithError = expectMostRecentItem()
+                assertFalse(stateWithError.isLoading)
+                assertFalse(stateWithError.isRefreshing)
+                assertEquals("Initial network error", stateWithError.errorMessage)
+                assertEquals(sampleQuestions, stateWithError.questions)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+
+            assertEquals(1, fakeRepository.refreshCallCount)
         }
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        viewModel.onEvent(QuestionsUiEvent.SelectCategory(QuestionCategory.KOTLIN))
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        assertEquals(QuestionCategory.KOTLIN, viewModel.uiState.value.selectedCategory)
-    }
 
     @Test
-    fun `refresh failure exposes error message and can be dismissed`() = runTest {
-        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            viewModel.uiState.collect()
+    fun `initial refresh failure with null message falls back to default error text`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            fakeRepository.refreshResult = Result.failure(Exception())
+
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+
+                advanceUntilIdle()
+
+                val state = expectMostRecentItem()
+                assertFalse(state.isRefreshing)
+                assertEquals("Failed to fetch questions from network", state.errorMessage)
+
+                cancelAndIgnoreRemainingEvents()
+            }
         }
-        testDispatcher.scheduler.advanceUntilIdle()
 
-        fakeRepository.shouldFailRefresh = true
-        viewModel.onEvent(QuestionsUiEvent.Refresh)
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        assertEquals("Network error", viewModel.uiState.value.errorMessage)
-        assertFalse(viewModel.uiState.value.isRefreshing)
-
-        viewModel.onEvent(QuestionsUiEvent.DismissError)
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        assertNull(viewModel.uiState.value.errorMessage)
-    }
+    // ==========================================
+    // Group 2: Category Selection & Reactivity
+    // ==========================================
 
     @Test
-    fun `toggle bookmark invokes use case`() = runTest {
-        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            viewModel.uiState.collect()
+    fun `SelectCategory updates selectedCategory and queries repository with selected category`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+                val loadedInitial = expectMostRecentItem()
+                assertEquals(QuestionCategory.ALL, loadedInitial.selectedCategory)
+
+                viewModel.onEvent(QuestionsUiEvent.SelectCategory(QuestionCategory.ANDROID))
+                advanceUntilIdle()
+
+                val updatedState = expectMostRecentItem()
+                assertEquals(QuestionCategory.ANDROID, updatedState.selectedCategory)
+                assertEquals(listOf(sampleQuestion1), updatedState.questions)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+
+            assertEquals(QuestionCategory.ANDROID, fakeRepository.lastRequestedCategory)
         }
-        testDispatcher.scheduler.advanceUntilIdle()
 
-        viewModel.onEvent(QuestionsUiEvent.ToggleBookmark("42"))
-        testDispatcher.scheduler.advanceUntilIdle()
+    @Test
+    fun `SelectCategory with null updates selectedCategory to null and passes null category to repository`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val viewModel = createViewModel()
 
-        assertEquals("42", fakeRepository.bookmarkedId)
-    }
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+                expectMostRecentItem()
+
+                viewModel.onEvent(QuestionsUiEvent.SelectCategory(null))
+                advanceUntilIdle()
+
+                val updatedState = expectMostRecentItem()
+                assertNull(updatedState.selectedCategory)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+
+            assertNull(fakeRepository.lastRequestedCategory)
+        }
+
+    @Test
+    fun `switching categories sequentially updates uiState with respective questions`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+                assertEquals(sampleQuestions, expectMostRecentItem().questions)
+
+                // Switch to ANDROID
+                viewModel.onEvent(QuestionsUiEvent.SelectCategory(QuestionCategory.ANDROID))
+                advanceUntilIdle()
+                val androidState = expectMostRecentItem()
+                assertEquals(QuestionCategory.ANDROID, androidState.selectedCategory)
+                assertEquals(listOf(sampleQuestion1), androidState.questions)
+
+                // Switch to KOTLIN
+                viewModel.onEvent(QuestionsUiEvent.SelectCategory(QuestionCategory.KOTLIN))
+                advanceUntilIdle()
+                val kotlinState = expectMostRecentItem()
+                assertEquals(QuestionCategory.KOTLIN, kotlinState.selectedCategory)
+                assertEquals(listOf(sampleQuestion2), kotlinState.questions)
+
+                // Switch back to ALL
+                viewModel.onEvent(QuestionsUiEvent.SelectCategory(QuestionCategory.ALL))
+                advanceUntilIdle()
+                val allState = expectMostRecentItem()
+                assertEquals(QuestionCategory.ALL, allState.selectedCategory)
+                assertEquals(sampleQuestions, allState.questions)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `uiState reactively updates when repository emits new questions without category change`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val questionsSharedFlow = MutableSharedFlow<List<InterviewQuestion>>(replay = 1)
+            questionsSharedFlow.emit(listOf(sampleQuestion1))
+            fakeRepository.customFlow = questionsSharedFlow
+
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+                val firstEmission = expectMostRecentItem()
+                assertEquals(listOf(sampleQuestion1), firstEmission.questions)
+
+                // Emit new data from database/network
+                questionsSharedFlow.emit(listOf(sampleQuestion1, sampleQuestion2))
+                advanceUntilIdle()
+
+                val secondEmission = expectMostRecentItem()
+                assertEquals(listOf(sampleQuestion1, sampleQuestion2), secondEmission.questions)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `uiState handles empty questions list gracefully`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            fakeRepository.sampleQuestions = emptyList()
+
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+
+                val state = expectMostRecentItem()
+                assertFalse(state.isLoading)
+                assertTrue(state.questions.isEmpty())
+
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    // ==========================================
+    // Group 3: Pull-to-Refresh & Error Handling
+    // ==========================================
+
+    @Test
+    fun `Refresh event sets isRefreshing true while active and false upon completion`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val refreshDeferred = CompletableDeferred<Result<Unit>>()
+            var callCount = 0
+            fakeRepository.onRefresh = {
+                callCount++
+                if (callCount == 1) {
+                    Result.success(Unit) // initial init refresh
+                } else {
+                    refreshDeferred.await() // manual refresh in-flight
+                }
+            }
+
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+                val idleState = expectMostRecentItem()
+                assertFalse(idleState.isRefreshing)
+
+                // Trigger manual refresh
+                viewModel.onEvent(QuestionsUiEvent.Refresh)
+                runCurrent()
+
+                // State while refresh is in-flight
+                val refreshingState = awaitItem()
+                assertTrue(refreshingState.isRefreshing)
+                assertNull(refreshingState.errorMessage)
+
+                // Complete the refresh
+                refreshDeferred.complete(Result.success(Unit))
+                runCurrent()
+
+                // State after completion
+                val finishedState = awaitItem()
+                assertFalse(finishedState.isRefreshing)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+
+            assertEquals(2, fakeRepository.refreshCallCount)
+        }
+
+    @Test
+    fun `Refresh event clears previous error message at the start of refresh`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            // Initial refresh fails
+            fakeRepository.refreshResult = Result.failure(RuntimeException("Previous error"))
+
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+                val stateWithError = expectMostRecentItem()
+                assertEquals("Previous error", stateWithError.errorMessage)
+
+                // Setup subsequent refresh to stay in-flight
+                val refreshDeferred = CompletableDeferred<Result<Unit>>()
+                fakeRepository.onRefresh = { refreshDeferred.await() }
+
+                viewModel.onEvent(QuestionsUiEvent.Refresh)
+                runCurrent()
+
+                // When refresh starts, error must be cleared immediately
+                val refreshingState = awaitItem()
+                assertTrue(refreshingState.isRefreshing)
+                assertNull(refreshingState.errorMessage)
+
+                // Complete refresh
+                refreshDeferred.complete(Result.success(Unit))
+                runCurrent()
+
+                val finalState = awaitItem()
+                assertFalse(finalState.isRefreshing)
+                assertNull(finalState.errorMessage)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `Refresh failure updates errorMessage with localizedMessage`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+                val idleState = expectMostRecentItem()
+                assertNull(idleState.errorMessage)
+
+                fakeRepository.refreshResult = Result.failure(RuntimeException("Network timeout"))
+                viewModel.onEvent(QuestionsUiEvent.Refresh)
+                advanceUntilIdle()
+
+                val errorState = expectMostRecentItem()
+                assertFalse(errorState.isRefreshing)
+                assertEquals("Network timeout", errorState.errorMessage)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `Refresh failure with null localizedMessage falls back to default error text`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+                val idleState = expectMostRecentItem()
+                assertNull(idleState.errorMessage)
+
+                fakeRepository.refreshResult = Result.failure(Exception())
+                viewModel.onEvent(QuestionsUiEvent.Refresh)
+                advanceUntilIdle()
+
+                val errorState = expectMostRecentItem()
+                assertFalse(errorState.isRefreshing)
+                assertEquals("Failed to fetch questions from network", errorState.errorMessage)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    // ==========================================
+    // Group 4: Bookmark Toggling
+    // ==========================================
+
+    @Test
+    fun `ToggleBookmark event invokes repository toggleBookmark with exact question id`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+
+                viewModel.onEvent(QuestionsUiEvent.ToggleBookmark("42"))
+                advanceUntilIdle()
+
+                cancelAndIgnoreRemainingEvents()
+            }
+
+            assertEquals(listOf("42"), fakeRepository.bookmarkedIds)
+        }
+
+    @Test
+    fun `multiple ToggleBookmark events invoke repository for each id sequentially`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+
+                viewModel.onEvent(QuestionsUiEvent.ToggleBookmark("id-1"))
+                viewModel.onEvent(QuestionsUiEvent.ToggleBookmark("id-2"))
+                viewModel.onEvent(QuestionsUiEvent.ToggleBookmark("id-3"))
+                advanceUntilIdle()
+
+                cancelAndIgnoreRemainingEvents()
+            }
+
+            assertEquals(listOf("id-1", "id-2", "id-3"), fakeRepository.bookmarkedIds)
+        }
+
+    // ==========================================
+    // Group 5: Error Dismissal
+    // ==========================================
+
+    @Test
+    fun `DismissError event clears existing error message in uiState`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            fakeRepository.refreshResult = Result.failure(RuntimeException("Dismissible error"))
+
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+                val errorState = expectMostRecentItem()
+                assertEquals("Dismissible error", errorState.errorMessage)
+
+                viewModel.onEvent(QuestionsUiEvent.DismissError)
+                advanceUntilIdle()
+
+                val dismissedState = expectMostRecentItem()
+                assertNull(dismissedState.errorMessage)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `DismissError when errorMessage is already null maintains null state without error`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val viewModel = createViewModel()
+
+            viewModel.uiState.test {
+                awaitItem() // initial loading
+                advanceUntilIdle()
+                val loadedState = expectMostRecentItem()
+                assertNull(loadedState.errorMessage)
+
+                viewModel.onEvent(QuestionsUiEvent.DismissError)
+                advanceUntilIdle()
+
+                expectNoEvents()
+                assertNull(viewModel.uiState.value.errorMessage)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
 }
