@@ -2,14 +2,11 @@ package com.uvarov.interviewprepareapp.ui.questions
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.uvarov.interviewprepareapp.di.IoDispatcher
 import com.uvarov.interviewprepareapp.domain.model.QuestionCategory
 import com.uvarov.interviewprepareapp.domain.usecase.GetQuestionsUseCase
 import com.uvarov.interviewprepareapp.domain.usecase.RefreshQuestionsUseCase
 import com.uvarov.interviewprepareapp.domain.usecase.ToggleBookmarkUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,13 +17,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class QuestionsViewModel @Inject constructor(
     private val getQuestionsUseCase: GetQuestionsUseCase,
     private val toggleBookmarkUseCase: ToggleBookmarkUseCase,
     private val refreshQuestionsUseCase: RefreshQuestionsUseCase,
-    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
     private val _selectedCategory = MutableStateFlow<QuestionCategory?>(QuestionCategory.ALL)
@@ -77,7 +72,7 @@ class QuestionsViewModel @Inject constructor(
     }
 
     private fun refreshQuestions() {
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true, errorMessage = null) }
             val result = refreshQuestionsUseCase()
             result.onFailure { error ->
@@ -94,7 +89,7 @@ class QuestionsViewModel @Inject constructor(
     }
 
     private fun toggleBookmark(id: String) {
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch {
             toggleBookmarkUseCase(id)
         }
     }

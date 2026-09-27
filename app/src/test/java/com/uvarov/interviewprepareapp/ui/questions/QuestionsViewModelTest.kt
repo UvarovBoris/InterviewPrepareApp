@@ -52,7 +52,6 @@ class QuestionsViewModelTest {
             getQuestionsUseCase = getQuestionsUseCase,
             toggleBookmarkUseCase = toggleBookmarkUseCase,
             refreshQuestionsUseCase = refreshQuestionsUseCase,
-            ioDispatcher = testDispatcher
         )
     }
 
