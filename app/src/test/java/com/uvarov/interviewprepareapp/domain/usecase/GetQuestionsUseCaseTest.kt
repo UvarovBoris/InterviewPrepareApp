@@ -163,6 +163,5 @@ class GetQuestionsUseCaseTest {
         }
 
         override suspend fun refreshQuestions(): Result<Unit> = Result.success(Unit)
-        override suspend fun toggleBookmark(id: String) {}
     }
 }

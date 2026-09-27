@@ -38,8 +38,7 @@ class QuestionRepositoryImplTest {
         category = "ANDROID",
         difficulty = "EASY",
         answerSummary = "onCreate, onStart, onResume...",
-        codeExample = "override fun onCreate()",
-        isBookmarked = false
+        codeExample = "override fun onCreate()"
     )
 
     private val sampleEntity2 = QuestionEntity(
@@ -48,8 +47,7 @@ class QuestionRepositoryImplTest {
         category = "KOTLIN",
         difficulty = "MEDIUM",
         answerSummary = "Dispatchers.Main, IO, Default",
-        codeExample = null,
-        isBookmarked = true
+        codeExample = null
     )
 
     private val sampleDto1 = QuestionDto(
@@ -102,7 +100,6 @@ class QuestionRepositoryImplTest {
             assertEquals(Difficulty.EASY, q1.difficulty)
             assertEquals("onCreate, onStart, onResume...", q1.answerSummary)
             assertEquals("override fun onCreate()", q1.codeExample)
-            assertEquals(false, q1.isBookmarked)
 
             val q2 = questions[1]
             assertEquals("2", q2.id)
@@ -111,7 +108,6 @@ class QuestionRepositoryImplTest {
             assertEquals(Difficulty.MEDIUM, q2.difficulty)
             assertEquals("Dispatchers.Main, IO, Default", q2.answerSummary)
             assertEquals(null, q2.codeExample)
-            assertEquals(true, q2.isBookmarked)
 
             awaitComplete()
         }
@@ -177,8 +173,7 @@ class QuestionRepositoryImplTest {
             category = "FLUTTER_UNKNOWN",
             difficulty = "NIGHTMARE",
             answerSummary = "Fallback summary",
-            codeExample = null,
-            isBookmarked = false
+            codeExample = null
         )
         every { questionDao.observeAllQuestions() } returns flowOf(listOf(unknownEntity))
 
@@ -243,7 +238,7 @@ class QuestionRepositoryImplTest {
     // ==========================================
 
     @Test
-    fun `refreshQuestions fetches from remote, maps to entities with isBookmarked false, inserts to DAO, and returns success`() = runTest {
+    fun `refreshQuestions fetches from remote, maps to entities, inserts to DAO, and returns success`() = runTest {
         coEvery { remoteDataSource.fetchQuestions() } returns listOf(sampleDto1, sampleDto2)
         coEvery { questionDao.insertQuestions(any()) } returns Unit
 
@@ -258,8 +253,7 @@ class QuestionRepositoryImplTest {
                 category = "ANDROID",
                 difficulty = "EASY",
                 answerSummary = "onCreate, onStart, onResume...",
-                codeExample = "override fun onCreate()",
-                isBookmarked = false
+                codeExample = "override fun onCreate()"
             ),
             QuestionEntity(
                 id = "2",
@@ -267,8 +261,7 @@ class QuestionRepositoryImplTest {
                 category = "KOTLIN",
                 difficulty = "MEDIUM",
                 answerSummary = "Dispatchers.Main, IO, Default",
-                codeExample = null,
-                isBookmarked = false
+                codeExample = null
             )
         )
 
@@ -313,25 +306,5 @@ class QuestionRepositoryImplTest {
         assertTrue(result.isSuccess)
         coVerify(exactly = 1) { remoteDataSource.fetchQuestions() }
         coVerify(exactly = 1) { questionDao.insertQuestions(emptyList()) }
-    }
-
-    // ==========================================
-    // Group 3: toggleBookmark(id)
-    // ==========================================
-
-    @Test
-    fun `toggleBookmark delegates to questionDao with expected question id`() = runTest {
-        coEvery { questionDao.toggleBookmark("question-123") } returns Unit
-
-        repository.toggleBookmark("question-123")
-
-        coVerify(exactly = 1) { questionDao.toggleBookmark("question-123") }
-    }
-
-    @Test(expected = RuntimeException::class)
-    fun `toggleBookmark propagates exception when questionDao toggleBookmark throws`() = runTest {
-        coEvery { questionDao.toggleBookmark(any()) } throws RuntimeException("DB write error")
-
-        repository.toggleBookmark("question-123")
     }
 }

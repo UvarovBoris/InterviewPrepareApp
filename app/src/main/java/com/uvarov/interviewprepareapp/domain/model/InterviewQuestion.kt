@@ -9,6 +9,5 @@ data class InterviewQuestion(
     val category: QuestionCategory,
     val difficulty: Difficulty,
     val answerSummary: String,
-    val codeExample: String? = null,
-    val isBookmarked: Boolean = false
+    val codeExample: String? = null
 )

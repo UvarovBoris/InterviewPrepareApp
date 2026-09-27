@@ -34,8 +34,4 @@ class QuestionRepositoryImpl @Inject constructor(
             questionDao.insertQuestions(entities)
         }
     }
-
-    override suspend fun toggleBookmark(id: String) {
-        questionDao.toggleBookmark(id)
-    }
 }

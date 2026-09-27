@@ -7,5 +7,4 @@ import kotlinx.coroutines.flow.Flow
 interface QuestionRepository {
     fun getQuestions(category: QuestionCategory?): Flow<List<InterviewQuestion>>
     suspend fun refreshQuestions(): Result<Unit>
-    suspend fun toggleBookmark(id: String)
 }

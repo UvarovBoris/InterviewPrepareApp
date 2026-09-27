@@ -7,7 +7,6 @@ import com.uvarov.interviewprepareapp.domain.model.QuestionCategory
 import com.uvarov.interviewprepareapp.domain.repository.QuestionRepository
 import com.uvarov.interviewprepareapp.domain.usecase.GetQuestionsUseCase
 import com.uvarov.interviewprepareapp.domain.usecase.RefreshQuestionsUseCase
-import com.uvarov.interviewprepareapp.domain.usecase.ToggleBookmarkUseCase
 import com.uvarov.interviewprepareapp.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -62,7 +61,6 @@ class QuestionsViewModelTest {
 
         var lastRequestedCategory: QuestionCategory? = null
         val requestedCategories = mutableListOf<QuestionCategory?>()
-        val bookmarkedIds = mutableListOf<String>()
 
         override fun getQuestions(category: QuestionCategory?): Flow<List<InterviewQuestion>> {
             lastRequestedCategory = category
@@ -83,22 +81,16 @@ class QuestionsViewModelTest {
             }
             return refreshResult
         }
-
-        override suspend fun toggleBookmark(id: String) {
-            bookmarkedIds.add(id)
-        }
     }
 
     private lateinit var fakeRepository: FakeQuestionRepository
 
     private fun createViewModel(): QuestionsViewModel {
         val getQuestionsUseCase = GetQuestionsUseCase(fakeRepository)
-        val toggleBookmarkUseCase = ToggleBookmarkUseCase(fakeRepository)
         val refreshQuestionsUseCase = RefreshQuestionsUseCase(fakeRepository)
 
         return QuestionsViewModel(
             getQuestionsUseCase = getQuestionsUseCase,
-            toggleBookmarkUseCase = toggleBookmarkUseCase,
             refreshQuestionsUseCase = refreshQuestionsUseCase
         )
     }
@@ -441,49 +433,7 @@ class QuestionsViewModelTest {
         }
 
     // ==========================================
-    // Group 4: Bookmark Toggling
-    // ==========================================
-
-    @Test
-    fun `ToggleBookmark event invokes repository toggleBookmark with exact question id`() =
-        runTest(mainDispatcherRule.testDispatcher) {
-            val viewModel = createViewModel()
-
-            viewModel.uiState.test {
-                awaitItem() // initial loading
-                advanceUntilIdle()
-
-                viewModel.onEvent(QuestionsUiEvent.ToggleBookmark("42"))
-                advanceUntilIdle()
-
-                cancelAndIgnoreRemainingEvents()
-            }
-
-            assertEquals(listOf("42"), fakeRepository.bookmarkedIds)
-        }
-
-    @Test
-    fun `multiple ToggleBookmark events invoke repository for each id sequentially`() =
-        runTest(mainDispatcherRule.testDispatcher) {
-            val viewModel = createViewModel()
-
-            viewModel.uiState.test {
-                awaitItem() // initial loading
-                advanceUntilIdle()
-
-                viewModel.onEvent(QuestionsUiEvent.ToggleBookmark("id-1"))
-                viewModel.onEvent(QuestionsUiEvent.ToggleBookmark("id-2"))
-                viewModel.onEvent(QuestionsUiEvent.ToggleBookmark("id-3"))
-                advanceUntilIdle()
-
-                cancelAndIgnoreRemainingEvents()
-            }
-
-            assertEquals(listOf("id-1", "id-2", "id-3"), fakeRepository.bookmarkedIds)
-        }
-
-    // ==========================================
-    // Group 5: Error Dismissal
+    // Group 4: Error Dismissal
     // ==========================================
 
     @Test

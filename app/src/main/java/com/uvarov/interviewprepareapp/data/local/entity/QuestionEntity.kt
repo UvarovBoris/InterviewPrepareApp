@@ -10,6 +10,5 @@ data class QuestionEntity(
     val category: String,
     val difficulty: String,
     val answerSummary: String,
-    val codeExample: String?,
-    val isBookmarked: Boolean
+    val codeExample: String?
 )

@@ -22,8 +22,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -175,10 +173,7 @@ fun QuestionsContent(
                         key = { it.id }
                     ) { question ->
                         QuestionCard(
-                            question = question,
-                            onToggleBookmark = {
-                                onEvent(QuestionsUiEvent.ToggleBookmark(question.id))
-                            }
+                            question = question
                         )
                     }
                 }
@@ -223,7 +218,6 @@ private fun CategoryFilterBar(
 @Composable
 private fun QuestionCard(
     question: InterviewQuestion,
-    onToggleBookmark: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var isExpanded by rememberSaveable(question.id) { mutableStateOf(false) }
@@ -244,24 +238,11 @@ private fun QuestionCard(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    CategoryBadge(category = question.category)
-                    DifficultyBadge(difficulty = question.difficulty)
-                }
-
-                IconButton(onClick = onToggleBookmark) {
-                    Icon(
-                        imageVector = if (question.isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                        contentDescription = if (question.isBookmarked) "Remove Bookmark" else "Bookmark Question",
-                        tint = if (question.isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                CategoryBadge(category = question.category)
+                DifficultyBadge(difficulty = question.difficulty)
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -443,16 +424,14 @@ private fun QuestionsContentPreview() {
             category = QuestionCategory.COROUTINES,
             difficulty = Difficulty.MEDIUM,
             answerSummary = "StateFlow is a state-holder observable flow that emits current and new state updates to its collectors.",
-            codeExample = "val state = MutableStateFlow(0)",
-            isBookmarked = true
+            codeExample = "val state = MutableStateFlow(0)"
         ),
         InterviewQuestion(
             id = "preview2",
             title = "Explain Jetpack Compose Recomposition",
             category = QuestionCategory.COMPOSE,
             difficulty = Difficulty.EASY,
-            answerSummary = "Recomposition runs composable functions again when inputs change.",
-            isBookmarked = false
+            answerSummary = "Recomposition runs composable functions again when inputs change."
         )
     )
 

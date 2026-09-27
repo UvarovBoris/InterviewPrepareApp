@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.uvarov.interviewprepareapp.domain.model.QuestionCategory
 import com.uvarov.interviewprepareapp.domain.usecase.GetQuestionsUseCase
 import com.uvarov.interviewprepareapp.domain.usecase.RefreshQuestionsUseCase
-import com.uvarov.interviewprepareapp.domain.usecase.ToggleBookmarkUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +20,6 @@ import javax.inject.Inject
 @HiltViewModel
 class QuestionsViewModel @Inject constructor(
     private val getQuestionsUseCase: GetQuestionsUseCase,
-    private val toggleBookmarkUseCase: ToggleBookmarkUseCase,
     private val refreshQuestionsUseCase: RefreshQuestionsUseCase,
 ) : ViewModel() {
 
@@ -62,10 +60,6 @@ class QuestionsViewModel @Inject constructor(
                 _selectedCategory.value = event.category
             }
 
-            is QuestionsUiEvent.ToggleBookmark -> {
-                toggleBookmark(event.id)
-            }
-
             QuestionsUiEvent.Refresh -> {
                 refreshQuestions()
             }
@@ -85,12 +79,6 @@ class QuestionsViewModel @Inject constructor(
                 _errorMessage.value = error.localizedMessage ?: "Failed to fetch questions from network"
             }
             _isRefreshing.value = false
-        }
-    }
-
-    private fun toggleBookmark(id: String) {
-        viewModelScope.launch {
-            toggleBookmarkUseCase(id)
         }
     }
 }

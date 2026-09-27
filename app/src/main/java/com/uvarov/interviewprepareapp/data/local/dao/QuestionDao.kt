@@ -18,9 +18,6 @@ interface QuestionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertQuestions(questions: List<QuestionEntity>)
 
-    @Query("UPDATE questions SET isBookmarked = NOT isBookmarked WHERE id = :id")
-    suspend fun toggleBookmark(id: String)
-
     @Query("SELECT COUNT(*) FROM questions")
     suspend fun getQuestionsCount(): Int
 }

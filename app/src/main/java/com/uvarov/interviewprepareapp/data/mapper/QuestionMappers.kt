@@ -13,8 +13,7 @@ fun QuestionDto.toEntity(): QuestionEntity {
         category = category,
         difficulty = difficulty,
         answerSummary = answerSummary,
-        codeExample = codeExample,
-        isBookmarked = false
+        codeExample = codeExample
     )
 }
 
@@ -31,8 +30,7 @@ fun QuestionEntity.toDomain(): InterviewQuestion {
         category = domainCategory,
         difficulty = domainDifficulty,
         answerSummary = answerSummary,
-        codeExample = codeExample,
-        isBookmarked = isBookmarked
+        codeExample = codeExample
     )
 }
 
@@ -43,7 +41,6 @@ fun InterviewQuestion.toEntity(): QuestionEntity {
         category = category.name,
         difficulty = difficulty.name,
         answerSummary = answerSummary,
-        codeExample = codeExample,
-        isBookmarked = isBookmarked
+        codeExample = codeExample
     )
 }
