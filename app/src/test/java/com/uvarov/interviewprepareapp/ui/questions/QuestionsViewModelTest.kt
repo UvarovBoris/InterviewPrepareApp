@@ -36,7 +36,7 @@ class QuestionsViewModelTest {
         }
 
         override suspend fun refreshQuestions(): Result<Unit> = Result.success(Unit)
-        override suspend fun toggleBookmark(id: String): Result<Unit> = Result.success(Unit)
+        override suspend fun toggleBookmark(id: String) {}
     }
 
     private lateinit var viewModel: QuestionsViewModel

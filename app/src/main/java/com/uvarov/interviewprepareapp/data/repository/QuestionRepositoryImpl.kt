@@ -4,20 +4,16 @@ import com.uvarov.interviewprepareapp.data.local.dao.QuestionDao
 import com.uvarov.interviewprepareapp.data.mapper.toDomain
 import com.uvarov.interviewprepareapp.data.mapper.toEntity
 import com.uvarov.interviewprepareapp.data.remote.datasource.QuestionRemoteDataSource
-import com.uvarov.interviewprepareapp.di.IoDispatcher
 import com.uvarov.interviewprepareapp.domain.model.InterviewQuestion
 import com.uvarov.interviewprepareapp.domain.model.QuestionCategory
 import com.uvarov.interviewprepareapp.domain.repository.QuestionRepository
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 class QuestionRepositoryImpl @Inject constructor(
     private val questionDao: QuestionDao,
     private val remoteDataSource: QuestionRemoteDataSource,
-    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : QuestionRepository {
 
     override fun getQuestions(category: QuestionCategory?): Flow<List<InterviewQuestion>> {
@@ -31,17 +27,15 @@ class QuestionRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun refreshQuestions(): Result<Unit> = withContext(ioDispatcher) {
-        runCatching {
+    override suspend fun refreshQuestions(): Result<Unit> {
+        return runCatching {
             val remoteDtos = remoteDataSource.fetchQuestions()
             val entities = remoteDtos.map { it.toEntity() }
             questionDao.insertQuestions(entities)
         }
     }
 
-    override suspend fun toggleBookmark(id: String): Result<Unit> = withContext(ioDispatcher) {
-        runCatching {
-            questionDao.toggleBookmark(id)
-        }
+    override suspend fun toggleBookmark(id: String) {
+        questionDao.toggleBookmark(id)
     }
 }
